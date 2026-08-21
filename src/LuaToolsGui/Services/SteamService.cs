@@ -24,7 +24,13 @@ public class SteamService(SettingsService settings)
         get
         {
             string p = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LuaToolsGui", "SteamFallback");
-            Directory.CreateDirectory(p);
+            Directory.CreateDirectory(Path.Combine(p, "config", "stplug-in"));
+            Directory.CreateDirectory(Path.Combine(p, "config", "depotcache"));
+            string dummyExe = Path.Combine(p, "steam.exe");
+            if (!File.Exists(dummyExe))
+            {
+                try { File.WriteAllText(dummyExe, ""); } catch { /* best effort */ }
+            }
             return p;
         }
     }
