@@ -45,33 +45,6 @@ public class SteamlessService(GithubProxy gh, SteamLibraryService library, Steam
         // Steamless downloader disabled
         return await Task.FromResult<string?>(null);
     }
-        try
-        {
-            if (File.Exists(CliPath)) return CliPath; // won the race elsewhere
-
-            // Latest release → the single distributable .zip asset.
-            string url = $"https://api.github.com/repos/{AppConfig.SteamlessRepo}/releases/latest";
-            using var res = await gh.SendAsync(url, ct);
-            if (res is null || !res.IsSuccessStatusCode) return null;
-
-            var release = JsonSerializer.Deserialize<GithubRelease>(await res.Content.ReadAsStringAsync(ct), JsonOpts);
-            var asset = release?.Assets.FirstOrDefault(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
-            if (asset is null) return null;
-
-            Directory.CreateDirectory(ToolDir);
-            string zipPath = Path.Combine(ToolDir, "steamless.zip");
-            await gh.DownloadAsync(asset.DownloadUrl, zipPath, progress, ct);
-
-            // Extract the WHOLE zip: the CLI needs its plugin DLLs alongside it.
-            ZipFile.ExtractToDirectory(zipPath, ToolDir, overwriteFiles: true);
-            try { File.Delete(zipPath); } catch { /* leftover zip is harmless */ }
-
-            return File.Exists(CliPath) ? CliPath : null;
-        }
-        catch (OperationCanceledException) { throw; }
-        catch { return null; }
-        finally { _toolGate.Release(); }
-    }
 
     /// <summary>Strip SteamStub DRM from a game's executable(s). Best-effort; never throws out of the loop.</summary>
     public async Task<SteamlessResult> PatchGameAsync(long appId, IProgress<double?>? progress, CancellationToken ct = default)
