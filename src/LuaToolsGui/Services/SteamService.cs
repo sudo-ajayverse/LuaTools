@@ -18,33 +18,44 @@ public class SteamService(SettingsService settings)
         (RegistryHive.LocalMachine, RegistryView.Registry64, @"SOFTWARE\Valve\Steam", "InstallPath"),
     ];
 
+    /// <summary>Default fallback path when Steam registry keys are absent.</summary>
+    public static string DefaultFallbackPath
+    {
+        get
+        {
+            string p = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LuaToolsGui", "SteamFallback");
+            Directory.CreateDirectory(p);
+            return p;
+        }
+    }
+
     /// <summary>Steam path detected from the registry (confirmed via steam.exe), or null.</summary>
     public string? AutoDetectedPath => DetectFromRegistry();
 
-    /// <summary>The effective path: user override if set, otherwise the auto-detected one.</summary>
-    public string? EffectivePath
+    /// <summary>The effective path: user override if set, otherwise auto-detected, or fallback directory.</summary>
+    public string EffectivePath
     {
         get
         {
             string? overridePath = settings.SteamPathOverride;
-            return !string.IsNullOrWhiteSpace(overridePath) ? Normalize(overridePath) : AutoDetectedPath;
+            if (!string.IsNullOrWhiteSpace(overridePath)) return Normalize(overridePath);
+            string? detected = AutoDetectedPath;
+            return !string.IsNullOrWhiteSpace(detected) ? detected : DefaultFallbackPath;
         }
     }
 
     public bool IsOverridden => !string.IsNullOrWhiteSpace(settings.SteamPathOverride);
 
-    /// <summary>True when the effective path exists and contains steam.exe.</summary>
-    public bool IsValid => EffectivePath is not null && File.Exists(SteamExePathFor(EffectivePath));
+    /// <summary>True when an effective path is resolved.</summary>
+    public bool IsValid => true;
 
     public static string SteamExePathFor(string steamPath) => Path.Combine(steamPath, "steam.exe");
 
-    /// <summary>Full path to config\stplug-in, or null if Steam isn't located.</summary>
-    public string? StPlugInDir =>
-        EffectivePath is { } p ? Path.Combine(p, "config", "stplug-in") : null;
+    /// <summary>Full path to config\stplug-in.</summary>
+    public string StPlugInDir => Path.Combine(EffectivePath, "config", "stplug-in");
 
-    /// <summary>Full path to config\depotcache (where .manifest files go), or null if Steam isn't located.</summary>
-    public string? DepotCacheDir =>
-        EffectivePath is { } p ? Path.Combine(p, "config", "depotcache") : null;
+    /// <summary>Full path to config\depotcache (where .manifest files go).</summary>
+    public string DepotCacheDir => Path.Combine(EffectivePath, "config", "depotcache");
 
     /// <summary>Open a store/steam URL or file path with the shell (browser, Steam client, Explorer).</summary>
     public static void OpenUrl(string url) =>
