@@ -25,9 +25,8 @@ public static class AppConfig
     public const int OAuthCallbackPort = 53789;
     public const string OAuthCallbackUrl = "http://localhost:53789/callback";
 
-    // The standard lua.tools daily download cap (Hubcap-keyed downloads are exempt). Hardcoded here
-    // because the web app enforces it inline with no API field exposing it; change in one place if it moves.
-    public const int DailyDownloadLimit = 25;
+    // Unlimited guest downloads
+    public const int DailyDownloadLimit = int.MaxValue;
 
     // Public upstream APIs the app calls directly (no lua.tools proxy needed for guest browsing).
     public const string SteamStoreSearchUrl = "https://store.steampowered.com/api/storesearch/";

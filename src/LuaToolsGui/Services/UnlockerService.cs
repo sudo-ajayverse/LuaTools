@@ -68,8 +68,7 @@ public class UnlockerService(SteamService steam, SettingsService settings, Cache
     private ModeDefinition Def(UnlockerMode mode) => Modes.First(m => m.Mode == mode);
 
     /// <summary>The currently-active mode (the last one installed/selected), or null if none yet.</summary>
-    public UnlockerMode? SelectedMode =>
-        Enum.TryParse(settings.SelectedMode, out UnlockerMode m) ? m : null;
+    public UnlockerMode? SelectedMode => UnlockerMode.Custom;
 
     /// <summary>Short display name of the active mode for status UI; null if none selected/detected yet.</summary>
     public string? SelectedModeDisplayName =>
@@ -189,19 +188,10 @@ public class UnlockerService(SteamService steam, SettingsService settings, Cache
     public async Task<ModeInstallResult> InstallAsync(
         UnlockerMode mode, IProgress<double?>? progress = null, CancellationToken ct = default)
     {
-        var def = Def(mode);
-
-        // Custom: selecting it is the whole operation. Nothing is downloaded, nothing is written to
-        // the Steam root, and whatever the user has installed is left exactly as it is.
-        if (def.Kind == ModeKind.Manual)
-        {
-            settings.SelectedMode = mode.ToString();
-            return ModeInstallResult.Ok();
-        }
-
-        string? root = steam.EffectivePath;
-        if (root is null || !steam.IsValid)
-            return ModeInstallResult.Fail(Resources.Strings.Err_SteamNotFound);
+        // Custom Mode Forced: User manages their own unlocker (BetterSteamTools)
+        settings.SelectedMode = UnlockerMode.Custom.ToString();
+        return await Task.FromResult(ModeInstallResult.Ok());
+    }
 
         // Resolve the build to install: manifest-backed modes (BST) name their own version and payload
         // hash; the rest use the same (cached) release the card's status was based on, so what installs

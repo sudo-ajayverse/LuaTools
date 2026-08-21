@@ -38,46 +38,17 @@ public class UpdateService
     /// usable update; the first success wins. No-op for un-installed (dev) builds.</summary>
     public async Task CheckAndStageAsync()
     {
-        // IsInstalled is a property of the Velopack install, not the repo, so any manager answers it.
-        if (_managers.Length == 0 || !_managers[0].IsInstalled) return; // `dotnet run` / unpacked builds
-
-        foreach (var mgr in _managers)
-        {
-            try
-            {
-                var info = await mgr.CheckForUpdatesAsync();
-                // A reachable repo returning null means we're already up to date. STOP. Don't fall
-                // through to a backup (it may lag behind the primary and would offer no/older update).
-                // Backups exist for an UNreachable primary, which surfaces as an exception below.
-                if (info is null) return;
-
-                await mgr.DownloadUpdatesAsync(info);
-                _stagedMgr = mgr;
-                _staged = info;
-                UpdateReady?.Invoke();
-                return; // staged from this repo. Done
-            }
-            catch
-            {
-                // This repo is unreachable/gone (or a download failed). Fall through to the next backup.
-            }
-        }
-        // Every repo failed (offline, or all repos down). Fail silently, retry next launch.
+        // Auto-updater disabled
+        await Task.CompletedTask;
     }
 
-    /// <summary>Apply the staged update now and relaunch into the new version. <paramref name="restartArgs"/>
-    /// are passed to the relaunched process (e.g. the loader's --minimized --tray-locked) so the new
-    /// instance keeps its session semantics.</summary>
     public void ApplyAndRestart(string[]? restartArgs = null)
     {
-        if (_stagedMgr is not null && _staged is not null)
-            _stagedMgr.ApplyUpdatesAndRestart(_staged, restartArgs);
+        // Auto-updater disabled
     }
 
-    /// <summary>Apply the staged update after the app exits (no forced restart).</summary>
     public void ApplyOnExit()
     {
-        if (_stagedMgr is not null && _staged is not null)
-            _stagedMgr.WaitExitThenApplyUpdates(_staged, silent: true, restart: false);
+        // Auto-updater disabled
     }
 }
