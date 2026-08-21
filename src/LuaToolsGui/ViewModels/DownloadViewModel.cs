@@ -328,11 +328,13 @@ public partial class DownloadViewModel : ObservableObject
         _ = FetchDetailsDebouncedAsync(appId.ToString());
     }
 
-    /// <summary>Guests can browse but must sign in for gated actions. Returns true if a sign-in was triggered.</summary>
     private async Task<bool> PromptSignInIfGuestAsync(string message)
     {
-        // Guests can download freely without signing in with Discord
-        return await Task.FromResult(false);
+        if (!_auth.IsGuest) return false;
+        Error = message;
+        _toast.Show(Resources.Strings.Fixes_SignInRequired, message);
+        if (RequestSignIn is not null) await RequestSignIn();
+        return true;
     }
 
     // ── Search ──────────────────────────────────────────────────────

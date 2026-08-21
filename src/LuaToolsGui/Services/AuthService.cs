@@ -47,28 +47,230 @@ public class AuthService
     /// </summary>
     public async Task<bool> InitializeAsync()
     {
-        ClearSession();
-        return false;
+        StoredAuth? stored = LoadStored();
+        if (stored is null || string.IsNullOrEmpty(stored.RefreshToken)) return false;
+
+        _accessToken = stored.AccessToken;
+        _refreshToken = stored.RefreshToken;
+        _expiresAt = stored.ExpiresAt;
+        DisplayName = stored.DisplayName;
+        Email = stored.Email;
+        AvatarUrl = stored.AvatarUrl;
+
+        // Token still comfortably valid, or refresh succeeds → keep the session
+        if (_expiresAt > DateTimeOffset.UtcNow.AddMinutes(2))
+        {
+            AuthStateChanged?.Invoke();
+            return true;
+        }
+        try
+        {
+            await RefreshAsync();
+            AuthStateChanged?.Invoke();
+            return true;
+        }
+        catch
+        {
+            ClearSession(); // revoked/expired. Fall back to guest
+            AuthStateChanged?.Invoke();
+            return false;
+        }
     }
 
+    // ── Interactive sign-in ─────────────────────────────────────────
+
+    /// <summary>
+    /// Full PKCE sign-in: opens Discord OAuth in the default browser and
+    /// captures the redirect on a localhost listener.
+    /// </summary>
     public async Task SignInAsync(CancellationToken ct = default)
     {
-        throw new AuthException("Remote authentication is disabled.");
+        string verifier = CreateCodeVerifier();
+        string challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
+
+        string authorizeUrl =
+            $"{AppConfig.SupabaseUrl}/auth/v1/authorize?provider=discord" +
+            $"&redirect_to={Uri.EscapeDataString(AppConfig.OAuthCallbackUrl)}" +
+            $"&code_challenge={challenge}&code_challenge_method=s256";
+
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{AppConfig.OAuthCallbackPort}/");
+        listener.Start();
+
+        Process.Start(new ProcessStartInfo(authorizeUrl) { UseShellExecute = true });
+
+        string code;
+        try
+        {
+            code = await WaitForCallbackAsync(listener, ct);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+
+        var session = await ExchangeCodeAsync(code, verifier, ct);
+        ApplySession(session);
+        AuthStateChanged?.Invoke();
     }
 
+    // ── Discord bot code sign-in ────────────────────────────────────
+
+    /// <summary>
+    /// Sign in with a 6-character Discord bot code (from <c>/login</c>): redeem it for a magic-link
+    /// token, then verify that token into a real Supabase session. Single-use, 5-minute TTL.
+    /// </summary>
     public async Task SignInWithCodeAsync(string code, CancellationToken ct = default)
     {
-        throw new AuthException("Remote authentication is disabled.");
+        // Step 1: redeem the code for a Supabase magic-link token hash. The code itself is the credential.
+        var redeemReq = new HttpRequestMessage(HttpMethod.Post, $"{AppConfig.ApiBaseUrl}/api/auth/code/redeem")
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(new { code = code.Trim().ToUpperInvariant() }),
+                Encoding.UTF8, "application/json"),
+        };
+
+        var redeemRes = await _http.SendAsync(redeemReq, ct);
+        string redeemBody = await redeemRes.Content.ReadAsStringAsync(ct);
+        if (!redeemRes.IsSuccessStatusCode)
+            throw new AuthException(redeemRes.StatusCode switch
+            {
+                HttpStatusCode.Gone => Resources.Strings.Settings_BotCode_Expired,
+                HttpStatusCode.NotFound => Resources.Strings.Settings_BotCode_Invalid,
+                HttpStatusCode.BadRequest => Resources.Strings.Settings_BotCode_Invalid,
+                _ => Resources.Strings.Settings_BotCode_ServerError,
+            });
+
+        var redeem = JsonSerializer.Deserialize<CodeRedeemResponse>(redeemBody);
+        if (redeem is null || string.IsNullOrEmpty(redeem.Token))
+            throw new AuthException(Resources.Strings.Settings_BotCode_ServerError);
+
+        // Step 2: verify the magic-link token hash into an access/refresh session.
+        var session = await VerifyMagicTokenAsync(redeem.Token, ct);
+        ApplySession(session);
+        AuthStateChanged?.Invoke();
     }
 
+    private async Task<SupabaseSession> VerifyMagicTokenAsync(string tokenHash, CancellationToken ct)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{AppConfig.SupabaseUrl}/auth/v1/verify")
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(new { type = "magiclink", token_hash = tokenHash }),
+                Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Add("apikey", AppConfig.SupabaseAnonKey);
+
+        var res = await _http.SendAsync(req, ct);
+        string body = await res.Content.ReadAsStringAsync(ct);
+        if (!res.IsSuccessStatusCode)
+            throw new AuthException(Resources.Strings.Settings_BotCode_ServerError);
+
+        return JsonSerializer.Deserialize<SupabaseSession>(body)
+               ?? throw new AuthException(Resources.Strings.Settings_BotCode_ServerError);
+    }
+
+    private static async Task<string> WaitForCallbackAsync(HttpListener listener, CancellationToken ct)
+    {
+        // 5 minute window for the user to complete the browser flow
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromMinutes(5));
+
+        while (true)
+        {
+            HttpListenerContext ctx;
+            try
+            {
+                ctx = await listener.GetContextAsync().WaitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw new AuthException(Resources.Strings.Auth_Err_Timeout);
+            }
+
+            string? code = HttpUtility.ParseQueryString(ctx.Request.Url?.Query ?? "").Get("code");
+            string? error = HttpUtility.ParseQueryString(ctx.Request.Url?.Query ?? "").Get("error_description");
+
+            if (code is null && error is null)
+            {
+                // Favicon or stray request: ignore and keep waiting
+                ctx.Response.StatusCode = 404;
+                ctx.Response.Close();
+                continue;
+            }
+
+            bool ok = code is not null;
+            byte[] page = Encoding.UTF8.GetBytes(ResultPage(ok, error));
+            ctx.Response.ContentType = "text/html; charset=utf-8";
+            ctx.Response.ContentLength64 = page.Length;
+            await ctx.Response.OutputStream.WriteAsync(page, timeout.Token);
+            ctx.Response.Close();
+
+            if (!ok) throw new AuthException(error ?? "Sign-in was denied.");
+            return code!;
+        }
+    }
+
+    private async Task<SupabaseSession> ExchangeCodeAsync(string code, string verifier, CancellationToken ct)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{AppConfig.SupabaseUrl}/auth/v1/token?grant_type=pkce")
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(new { auth_code = code, code_verifier = verifier }),
+                Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Add("apikey", AppConfig.SupabaseAnonKey);
+
+        var res = await _http.SendAsync(req, ct);
+        string body = await res.Content.ReadAsStringAsync(ct);
+        if (!res.IsSuccessStatusCode)
+            throw new AuthException(string.Format(Resources.Strings.Auth_Err_TokenExchangeFailed, (int)res.StatusCode, body));
+
+        return JsonSerializer.Deserialize<SupabaseSession>(body)
+               ?? throw new AuthException(Resources.Strings.Auth_Err_TokenExchangeEmpty);
+    }
+
+    // ── Token access / refresh ──────────────────────────────────────
+
+    /// <summary>Returns a valid access token, refreshing first when close to expiry. Throws for guests.</summary>
     public async Task<string> GetValidAccessTokenAsync()
     {
-        throw new AuthException("Remote authentication is disabled.");
+        if (_refreshToken is null) throw new AuthException(Resources.Strings.Auth_Err_NotSignedIn);
+
+        if (_expiresAt <= DateTimeOffset.UtcNow.AddMinutes(2))
+        {
+            await _refreshLock.WaitAsync();
+            try
+            {
+                if (_expiresAt <= DateTimeOffset.UtcNow.AddMinutes(2))
+                    await RefreshAsync();
+            }
+            finally
+            {
+                _refreshLock.Release();
+            }
+        }
+        return _accessToken!;
     }
 
     private async Task RefreshAsync()
     {
-        await Task.CompletedTask;
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{AppConfig.SupabaseUrl}/auth/v1/token?grant_type=refresh_token")
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(new { refresh_token = _refreshToken }),
+                Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Add("apikey", AppConfig.SupabaseAnonKey);
+
+        var res = await _http.SendAsync(req);
+        string body = await res.Content.ReadAsStringAsync();
+        if (!res.IsSuccessStatusCode)
+            throw new AuthException(string.Format(Resources.Strings.Auth_Err_RefreshFailed, (int)res.StatusCode));
+
+        var session = JsonSerializer.Deserialize<SupabaseSession>(body)
+                      ?? throw new AuthException(Resources.Strings.Auth_Err_RefreshEmpty);
+        ApplySession(session);
     }
 
     /// <summary>Sign out of the account and return to guest browsing (app stays usable).</summary>
