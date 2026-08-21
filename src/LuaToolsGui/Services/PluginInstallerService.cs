@@ -299,10 +299,9 @@ public class PluginInstallerService(SteamService steam, GithubProxy gh, CefInjec
     // ── Install / update ──
     public async Task<(bool ok, string? error)> InstallAsync(IProgress<double?>? progress, CancellationToken ct = default)
     {
-        if (SteamDir is not { } steamDir) return (false, Resources.Strings.Plugin_Err_SteamNotFound);
-
-        var latest = await FetchLatestAsync(force: true, ct);
-        if (latest is null) return (false, Resources.Strings.Plugin_Err_GithubUnreachable);
+        // Plugin installer disabled: zero winmm.dll proxying, zero junction creation
+        return await Task.FromResult((true, (string?)null));
+    }
 
         var zipAsset = FindAsset(latest, PluginZipAsset);
         if (zipAsset is null)

@@ -42,9 +42,9 @@ public class SteamlessService(GithubProxy gh, SteamLibraryService library, Steam
     /// if the tool couldn't be obtained.</summary>
     public async Task<string?> EnsureToolAsync(IProgress<double?>? progress, CancellationToken ct = default)
     {
-        if (File.Exists(CliPath)) return CliPath;
-
-        await _toolGate.WaitAsync(ct);
+        // Steamless downloader disabled
+        return await Task.FromResult<string?>(null);
+    }
         try
         {
             if (File.Exists(CliPath)) return CliPath; // won the race elsewhere

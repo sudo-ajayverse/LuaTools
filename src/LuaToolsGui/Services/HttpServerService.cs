@@ -105,33 +105,8 @@ public class HttpServerService : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _appCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _listener = new HttpListener();
-        _listener.Prefixes.Add("http://127.0.0.1:6767/");
-        try { _listener.Start(); }
-        catch (HttpListenerException)
-        {
-            _log.LogWarning("HttpListener could not start on 127.0.0.1:6767, attempting netsh reservation");
-            try
-            {
-                var psi = new System.Diagnostics.ProcessStartInfo("netsh", "http add urlacl url=http://127.0.0.1:6767/ user=Everyone")
-                {
-                    Verb = "runas",
-                    UseShellExecute = true,
-                    CreateNoWindow = true,
-                };
-                System.Diagnostics.Process.Start(psi)?.WaitForExit(3000);
-                _listener.Start();
-            }
-            catch (Exception ex)
-            {
-                _log.LogError(ex, "Failed to start HTTP server on :6767");
-                return Task.CompletedTask;
-            }
-        }
-
-        _log.LogInformation("HTTP server listening on http://127.0.0.1:6767");
-        _ = Task.Run(() => ListenLoop(_appCts.Token), _appCts.Token);
+        // Local HTTP server disabled
+        _log.LogInformation("HTTP server on 6767 disabled");
         return Task.CompletedTask;
     }
 

@@ -43,14 +43,11 @@ public class CefInjectorService : IHostedService
         _log = logger;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-        _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-        await ReloadPluginFilesAsync();
-
-        _ = Task.Run(() => InjectionLoop(_cts.Token), _cts.Token);
-        _log.LogInformation("CEF injector started");
+        // CEF injection disabled
+        _log.LogInformation("CEF injector disabled");
+        return Task.CompletedTask;
     }
 
     /// <summary>(Re)reads luatools.js + the polyfill from disk into memory. Called once at startup, and
