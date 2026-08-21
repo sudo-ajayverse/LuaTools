@@ -407,9 +407,7 @@ public partial class FixesViewModel : PagedListViewModel<FixGameCardVm>
 
     private async Task<bool> PromptSignInIfGuestAsync(string message)
     {
-        if (!auth.IsGuest) return false;
-        toast.Show(Resources.Strings.Fixes_SignInRequired, message);
-        if (RequestSignIn is not null) await RequestSignIn();
-        return true;
+        // Guests can download fixes freely without signing in with Discord
+        return await Task.FromResult(false);
     }
 }
