@@ -157,17 +157,17 @@ public class LuaToolsApiClient(AuthService auth, SteamAppInfoCache appInfo, Cove
     public Task<DownloadedFile> DownloadManifestAsync(
         string appid, string source, string? gameName, IProgress<double?>? progress, CancellationToken ct = default)
     {
-        string url = $"/api/manifest/download?appid={appid}&source={Uri.EscapeDataString(source)}";
+        string url = $"{AppConfig.ManifestBackendUrl}/download?appid={appid}&source={Uri.EscapeDataString(source)}";
         if (!string.IsNullOrEmpty(gameName)) url += $"&game_name={Uri.EscapeDataString(gameName)}";
-        return DownloadFileAsync(url, $"{appid}.zip", progress, ct);
+        return DownloadFromBackendUrlAsync(url, $"{appid}.zip", progress, ct);
     }
 
     public Task<DownloadedFile> GenerateDlcAsync(
         string appid, string baseAppId, string? gameName, IProgress<double?>? progress, CancellationToken ct = default)
     {
-        string url = $"/api/dlc/generate?appid={appid}&base={baseAppId}";
+        string url = $"{AppConfig.ManifestBackendUrl}/dlc/generate?appid={appid}&base={baseAppId}";
         if (!string.IsNullOrEmpty(gameName)) url += $"&game_name={Uri.EscapeDataString(gameName)}";
-        return DownloadFileAsync(url, $"{appid}.lua", progress, ct);
+        return DownloadFromBackendUrlAsync(url, $"{appid}.lua", progress, ct);
     }
 
     // ── Denuvo fixes ────────────────────────────────────────────────
@@ -250,6 +250,17 @@ public class LuaToolsApiClient(AuthService auth, SteamAppInfoCache appInfo, Cove
     {
         // New request (not via SendAsync) so no Bearer header and the absolute URL isn't prefixed.
         var req = new HttpRequestMessage(HttpMethod.Get, url);
+        var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!res.IsSuccessStatusCode)
+            throw new ApiException(string.Format(Resources.Strings.Api_Err_DownloadFailed, (int)res.StatusCode), res.StatusCode);
+        return await SaveResponseAsync(res, fallbackName, progress, ct);
+    }
+
+    private async Task<DownloadedFile> DownloadFromBackendUrlAsync(
+        string url, string fallbackName, IProgress<double?>? progress, CancellationToken ct)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.TryAddWithoutValidation("User-Agent", AppConfig.ManifestBackendUserAgent);
         var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!res.IsSuccessStatusCode)
             throw new ApiException(string.Format(Resources.Strings.Api_Err_DownloadFailed, (int)res.StatusCode), res.StatusCode);
