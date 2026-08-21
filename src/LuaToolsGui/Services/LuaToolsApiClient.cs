@@ -157,17 +157,17 @@ public class LuaToolsApiClient(AuthService auth, SteamAppInfoCache appInfo, Cove
     public Task<DownloadedFile> DownloadManifestAsync(
         string appid, string source, string? gameName, IProgress<double?>? progress, CancellationToken ct = default)
     {
-        string url = $"{AppConfig.ManifestBackendUrl}/api/manifest/download?appid={appid}&source={Uri.EscapeDataString(source)}";
+        string url = $"/api/manifest/download?appid={appid}&source={Uri.EscapeDataString(source)}";
         if (!string.IsNullOrEmpty(gameName)) url += $"&game_name={Uri.EscapeDataString(gameName)}";
-        return DownloadFromBackendUrlAsync(url, $"{appid}.zip", progress, ct);
+        return DownloadFileAsync(url, $"{appid}.zip", progress, ct);
     }
 
     public Task<DownloadedFile> GenerateDlcAsync(
         string appid, string baseAppId, string? gameName, IProgress<double?>? progress, CancellationToken ct = default)
     {
-        string url = $"{AppConfig.ManifestBackendUrl}/api/dlc/generate?appid={appid}&base={baseAppId}";
+        string url = $"/api/dlc/generate?appid={appid}&base={baseAppId}";
         if (!string.IsNullOrEmpty(gameName)) url += $"&game_name={Uri.EscapeDataString(gameName)}";
-        return DownloadFromBackendUrlAsync(url, $"{appid}.lua", progress, ct);
+        return DownloadFileAsync(url, $"{appid}.lua", progress, ct);
     }
 
     // ── Denuvo fixes ────────────────────────────────────────────────
